@@ -769,7 +769,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - Built with [Anchor Framework](https://www.anchor-lang.com/)
 - Powered by [Solana](https://solana.com/)
-- Inspired by [Pump.fun](https://pump.fun/)
 
 ---
 
