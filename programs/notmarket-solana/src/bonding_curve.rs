@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use magic_curves::ExponentialBondingCurve;
 use crate::errors::LaunchpadError;
 use crate::state::{CURVE_SUPPLY, START_PRICE_USD, USD_SCALE, GRADUATION_USD};
 
@@ -13,35 +14,49 @@ use crate::state::{CURVE_SUPPLY, START_PRICE_USD, USD_SCALE, GRADUATION_USD};
 pub struct BondingCurveCalculator;
 
 impl BondingCurveCalculator {
-    /// Calculate the exponential growth constant k
-    /// k = ln(END_PRICE / START_PRICE) / CURVE_SUPPLY
-    /// This ensures price(0) = START_PRICE and price(CURVE_SUPPLY) = END_PRICE
-    fn calculate_k() -> Result<u128> {
-        const SCALE: u128 = 1_000_000_000_000; // 1e12 for precision
+    /// Create the exponential bonding curve with our parameters
+    /// 
+    /// We use magic-curves for efficient, precise calculations
+    /// Formula: price = base_price * e^(growth_rate * supply)
+    fn create_curve() -> ExponentialBondingCurve {
+        // Calculate growth rate k such that:
+        // END_PRICE = START_PRICE * e^(k * CURVE_SUPPLY_TOKENS)
+        // k = ln(END_PRICE / START_PRICE) / CURVE_SUPPLY_TOKENS
         
-        // Calculate ln(END_PRICE / START_PRICE)
-        // ln(6900/420) = ln(16.428571) ≈ 2.798
-        // Precalculated and scaled: 2.798 * 1e12 = 2_798_000_000_000
-        let ln_ratio: u128 = 2_798_000_000_000; // ln(END_PRICE/START_PRICE) * SCALE
+        // CURVE_SUPPLY is 800M tokens with 9 decimals = 800_000_000_000_000_000
+        // We want the curve in terms of actual tokens, so divide by 1e9
+        // CURVE_SUPPLY_TOKENS = 800_000_000
         
-        // k = ln_ratio / CURVE_SUPPLY
-        // We need to maintain precision, so: k_scaled = ln_ratio / (CURVE_SUPPLY / SCALE)
-        let k = ln_ratio
-            .checked_mul(SCALE)
-            .ok_or(LaunchpadError::MathOverflow)?
-            .checked_div(CURVE_SUPPLY as u128)
-            .ok_or(LaunchpadError::MathOverflow)?;
+        // END_PRICE / START_PRICE = 6900 / 420 ≈ 16.428571
+        // ln(16.428571) ≈ 2.798
+        // k = 2.798 / 800_000_000 ≈ 3.4975e-9
         
-        Ok(k)
+        // For magic-curves, we pass growth_rate (k) and base_price
+        // Growth rate: 3.4975e-9
+        let growth_rate = 0.0000000034975;
+        let base_price = START_PRICE_USD as f64 / USD_SCALE as f64;
+        
+        ExponentialBondingCurve::new(base_price, growth_rate)
+    }
+    
+    /// Convert token amount with decimals to actual token count
+    fn to_token_count(amount_with_decimals: u64) -> u64 {
+        amount_with_decimals / 1_000_000_000
+    }
+    
+    /// Convert actual token count to amount with decimals
+    fn to_amount_with_decimals(token_count: u64) -> Result<u64> {
+        token_count
+            .checked_mul(1_000_000_000)
+            .ok_or(LaunchpadError::MathOverflow.into())
     }
     
     /// Calculate price for buying tokens using exponential bonding curve
-    /// Formula: price(tokens_sold) = START_PRICE * e^(k * tokens_sold)
-    /// Cost = integral from tokens_sold to (tokens_sold + amount)
+    /// Uses magic-curves for efficient and precise calculation
     /// 
     /// # Arguments
-    /// * `tokens_sold` - Number of tokens already sold on curve
-    /// * `amount` - Number of tokens to buy
+    /// * `tokens_sold` - Number of tokens already sold on curve (with 9 decimals)
+    /// * `amount` - Number of tokens to buy (with 9 decimals)
     /// * `sol_price_usd` - Current SOL price in USD (scaled by 1e8)
     /// 
     /// # Returns
@@ -57,44 +72,28 @@ impl BondingCurveCalculator {
             LaunchpadError::InsufficientSupply
         );
         
-        const SCALE: u128 = 1_000_000_000_000; // 1e12 for precision
+        let curve = Self::create_curve();
         
-        let k = Self::calculate_k()?;
+        // Convert to actual token counts (without decimals)
+        let tokens_sold_count = Self::to_token_count(tokens_sold);
+        let amount_count = Self::to_token_count(amount);
         
-        // Calculate e^(k * tokens_sold)
-        let exp_start = Self::exp_taylor_precise(k, tokens_sold as u128, SCALE)?;
+        // Get price at both points
+        let price_start = curve.calculate_price_lossy(tokens_sold_count);
+        let price_end = curve.calculate_price_lossy(tokens_sold_count + amount_count);
         
-        // Calculate e^(k * (tokens_sold + amount))
-        let tokens_end = tokens_sold
-            .checked_add(amount)
-            .ok_or(LaunchpadError::MathOverflow)?;
-        let exp_end = Self::exp_taylor_precise(k, tokens_end as u128, SCALE)?;
+        // Use average price * amount for the cost
+        let average_price = (price_start + price_end) / 2.0;
+        let cost_usd = average_price * (amount_count as f64);
         
-        // Integral = (START_PRICE / k) * [e^(k*end) - e^(k*start)]
-        let exp_diff = exp_end
-            .checked_sub(exp_start)
-            .ok_or(LaunchpadError::MathOverflow)?;
+        // Convert USD to lamports
+        // lamports = (cost_usd) / (sol_price_usd / 1e8) * 1e9
+        let sol_price_usd_f64 = sol_price_usd as f64 / 1e8;
+        let cost_sol = cost_usd / sol_price_usd_f64;
+        let lamports = (cost_sol * 1e9) as u64;
         
-        // Cost in USD (scaled) = (START_PRICE_USD / k) * exp_diff
-        let numerator = (START_PRICE_USD as u128)
-            .checked_mul(exp_diff)
-            .ok_or(LaunchpadError::MathOverflow)?
-            .checked_mul(SCALE)
-            .ok_or(LaunchpadError::MathOverflow)?;
-        
-        let cost_usd_scaled = numerator
-            .checked_div(k)
-            .ok_or(LaunchpadError::MathOverflow)?
-            .checked_div(SCALE)
-            .ok_or(LaunchpadError::MathOverflow)?;
-        
-        // Convert USD to SOL lamports
-        // lamports = (cost_usd_scaled / USD_SCALE) / sol_price_usd * 1e9
-        let lamports = cost_usd_scaled
-            .checked_mul(1_000_000_000) // SOL decimals
-            .ok_or(LaunchpadError::MathOverflow)?
-            .checked_div((sol_price_usd as u128).checked_mul(USD_SCALE as u128).ok_or(LaunchpadError::MathOverflow)?)
-            .ok_or(LaunchpadError::MathOverflow)? as u64;
+        // Ensure minimum price to avoid 0
+        let lamports = if lamports == 0 { 1 } else { lamports };
         
         Ok(lamports)
     }
@@ -124,59 +123,11 @@ impl BondingCurveCalculator {
         Self::calculate_buy_price(new_tokens_sold, amount, sol_price_usd)
     }
     
-    /// Approximate e^(k*supply) using Taylor series expansion with high precision
-    /// e^x ≈ 1 + x + x²/2! + x³/3! + x⁴/4! + ...
-    /// 
-    /// # Arguments
-    /// * `k` - Scaled curve coefficient
-    /// * `supply` - Current supply (tokens sold)
-    /// * `scale` - Scaling factor for fixed-point arithmetic
-    /// 
-    /// # Returns
-    /// * `Result<u128>` - e^(k*supply) scaled
-    fn exp_taylor_precise(k: u128, supply: u128, scale: u128) -> Result<u128> {
-        // Calculate k * supply (the exponent)
-        // Since k is already scaled, and supply is in token units, we need to normalize
-        let exponent = k
-            .checked_mul(supply)
-            .ok_or(LaunchpadError::MathOverflow)?
-            .checked_div(scale)
-            .ok_or(LaunchpadError::MathOverflow)?;
-        
-        // Use Taylor series for e^x (using more terms for precision)
-        // Start with 1 * scale (scaled version of 1)
-        let mut result = scale;
-        let mut term = scale;
-        
-        // Compute up to 20 terms for better precision
-        for i in 1u128..=20 {
-            // term = term * exponent / (i * scale)
-            term = term
-                .checked_mul(exponent)
-                .ok_or(LaunchpadError::MathOverflow)?
-                .checked_div(i)
-                .ok_or(LaunchpadError::MathOverflow)?
-                .checked_div(scale)
-                .ok_or(LaunchpadError::MathOverflow)?;
-            
-            result = result
-                .checked_add(term)
-                .ok_or(LaunchpadError::MathOverflow)?;
-            
-            // Early exit if term becomes negligible
-            if term == 0 {
-                break;
-            }
-        }
-        
-        Ok(result)
-    }
-    
     /// Calculate the current spot price at a given supply level
     /// Formula: price(tokens_sold) = START_PRICE * e^(k * tokens_sold)
     /// 
     /// # Arguments
-    /// * `tokens_sold` - Number of tokens already sold
+    /// * `tokens_sold` - Number of tokens already sold (with 9 decimals)
     /// * `sol_price_usd` - Current SOL price in USD (scaled by 1e8)
     /// 
     /// # Returns
@@ -185,27 +136,21 @@ impl BondingCurveCalculator {
         tokens_sold: u64,
         sol_price_usd: u64,
     ) -> Result<u64> {
-        const SCALE: u128 = 1_000_000_000_000; // 1e12 for precision
+        let curve = Self::create_curve();
         
-        let k = Self::calculate_k()?;
+        // Convert to actual token count
+        let tokens_sold_count = Self::to_token_count(tokens_sold);
         
-        // Calculate e^(k * tokens_sold)
-        let exp_value = Self::exp_taylor_precise(k, tokens_sold as u128, SCALE)?;
+        // Get price at current supply
+        let price_usd = curve.calculate_price_lossy(tokens_sold_count);
         
-        // Price in USD (scaled) = START_PRICE_USD * e^(k * tokens_sold)
-        let price_usd_scaled = (START_PRICE_USD as u128)
-            .checked_mul(exp_value)
-            .ok_or(LaunchpadError::MathOverflow)?
-            .checked_div(SCALE)
-            .ok_or(LaunchpadError::MathOverflow)?;
+        // Convert USD to lamports per token
+        let sol_price_usd_f64 = sol_price_usd as f64 / 1e8;
+        let price_sol = price_usd / sol_price_usd_f64;
+        let lamports = (price_sol * 1e9) as u64;
         
-        // Convert to lamports per token
-        // lamports_per_token = (price_usd_scaled / USD_SCALE) / sol_price_usd * 1e9
-        let lamports = price_usd_scaled
-            .checked_mul(1_000_000_000)
-            .ok_or(LaunchpadError::MathOverflow)?
-            .checked_div((sol_price_usd as u128).checked_mul(USD_SCALE as u128).ok_or(LaunchpadError::MathOverflow)?)
-            .ok_or(LaunchpadError::MathOverflow)? as u64;
+        // Ensure minimum price to avoid 0
+        let lamports = if lamports == 0 { 1 } else { lamports };
         
         Ok(lamports)
     }
@@ -318,7 +263,7 @@ mod tests {
     #[test]
     fn test_graduation_check() {
         // Test that 800M tokens sold with $12k should graduate
-        let tokens_sold = CURVE_SUPPLY;
+        let _tokens_sold = CURVE_SUPPLY;
         let sol_reserve = 80_000_000_000; // 80 SOL
         let sol_price_usd = 15_000_000_000; // $150 = $12k total
         

@@ -5,6 +5,7 @@ use anchor_spl::associated_token::AssociatedToken;
 use crate::state::*;
 use crate::bonding_curve::BondingCurveCalculator;
 use crate::errors::LaunchpadError;
+use crate::events::*;
 
 /// Buy tokens from the bonding curve
 #[derive(Accounts)]
@@ -201,6 +202,17 @@ impl<'info> BuyTokens<'info> {
             LaunchpadError::SlippageExceeded
         );
         
+        // Ensure sol_vault has rent-exempt minimum (890880 lamports for 0-byte account)
+        const RENT_EXEMPT_MINIMUM: u64 = 890_880;
+        let vault_lamports = self.sol_vault.lamports();
+        let amount_to_transfer = if vault_lamports < RENT_EXEMPT_MINIMUM {
+            // First transfer: ensure vault becomes rent-exempt
+            cost.checked_add(RENT_EXEMPT_MINIMUM - vault_lamports)
+                .ok_or(LaunchpadError::MathOverflow)?
+        } else {
+            cost
+        };
+        
         // Transfer SOL from buyer to vault
         let transfer_to_vault = Transfer {
             from: self.buyer.to_account_info(),
@@ -211,7 +223,7 @@ impl<'info> BuyTokens<'info> {
                 self.system_program.to_account_info(),
                 transfer_to_vault,
             ),
-            cost,
+            amount_to_transfer,
         )?;
         
         // Transfer fee to fee recipient
@@ -297,6 +309,18 @@ impl<'info> BuyTokens<'info> {
             .ok_or(LaunchpadError::MathOverflow)?;
         self.user_position.last_interaction = Clock::get()?.unix_timestamp;
         
+        // Emit user position updated event
+        emit!(UserPositionUpdated {
+            user: self.buyer.key(),
+            launch: self.token_launch.key(),
+            token_amount: self.user_position.token_amount,
+            sol_invested: self.user_position.sol_invested,
+            sol_received: self.user_position.sol_received,
+            buy_count: self.user_position.buy_count,
+            sell_count: self.user_position.sell_count,
+            timestamp: self.user_position.last_interaction,
+        });
+        
         msg!(
             "Bought {} tokens for {} lamports (fee: {}). Tokens sold: {}/800M",
             amount,
@@ -309,6 +333,16 @@ impl<'info> BuyTokens<'info> {
         if self.bonding_curve.should_graduate() {
             msg!("🎓 Graduation threshold reached! 800M tokens sold and $12k raised!");
             self.bonding_curve.is_graduated = true;
+            
+            // Emit graduation event
+            emit!(CurveGraduated {
+                launch: self.token_launch.key(),
+                bonding_curve: self.bonding_curve.key(),
+                tokens_sold: self.bonding_curve.tokens_sold,
+                sol_raised: self.bonding_curve.sol_reserve,
+                timestamp: Clock::get()?.unix_timestamp,
+            });
+            
             // Note: Actual LP creation logic would be implemented in a separate instruction
         }
         
@@ -317,7 +351,7 @@ impl<'info> BuyTokens<'info> {
 }
 
 impl<'info> SellTokens<'info> {
-    pub fn execute(&mut self, amount: u64, min_sol_output: u64) -> Result<()> {
+    pub fn execute(&mut self, amount: u64, min_sol_output: u64, bumps: &SellTokensBumps) -> Result<()> {
         require!(amount > 0, LaunchpadError::InvalidAmount);
         require!(
             self.user_position.token_amount >= amount,
@@ -365,28 +399,43 @@ impl<'info> SellTokens<'info> {
             amount,
         )?;
         
-        // Transfer SOL from vault to seller
-        let vault_lamports = self.sol_vault.lamports();
-        require!(
-            vault_lamports >= net_proceeds,
-            LaunchpadError::InsufficientLiquidity
-        );
+        // Transfer SOL from vault to seller using PDA signer
+        let bonding_curve_key = self.bonding_curve.key();
+        let vault_seeds = &[
+            b"sol_vault",
+            bonding_curve_key.as_ref(),
+            &[bumps.sol_vault],
+        ];
+        let vault_signer_seeds = &[&vault_seeds[..]];
         
-        **self.sol_vault.try_borrow_mut_lamports()? = vault_lamports
-            .checked_sub(net_proceeds)
-            .ok_or(LaunchpadError::MathOverflow)?;
-        **self.seller.try_borrow_mut_lamports()? = self.seller.lamports()
-            .checked_add(net_proceeds)
-            .ok_or(LaunchpadError::MathOverflow)?;
+        // Transfer net proceeds to seller
+        let transfer_to_seller = Transfer {
+            from: self.sol_vault.to_account_info(),
+            to: self.seller.to_account_info(),
+        };
+        transfer(
+            CpiContext::new_with_signer(
+                self.system_program.to_account_info(),
+                transfer_to_seller,
+                vault_signer_seeds,
+            ),
+            net_proceeds,
+        )?;
         
         // Transfer fee to fee recipient
         if fee > 0 {
-            **self.sol_vault.try_borrow_mut_lamports()? = self.sol_vault.lamports()
-                .checked_sub(fee)
-                .ok_or(LaunchpadError::MathOverflow)?;
-            **self.fee_recipient.try_borrow_mut_lamports()? = self.fee_recipient.lamports()
-                .checked_add(fee)
-                .ok_or(LaunchpadError::MathOverflow)?;
+            let transfer_fee = Transfer {
+                from: self.sol_vault.to_account_info(),
+                to: self.fee_recipient.to_account_info(),
+            };
+            transfer(
+                CpiContext::new_with_signer(
+                    self.system_program.to_account_info(),
+                    transfer_fee,
+                    vault_signer_seeds,
+                ),
+                fee,
+            )?;
         }
         
         // Update bonding curve state
@@ -422,6 +471,18 @@ impl<'info> SellTokens<'info> {
             .checked_add(1)
             .ok_or(LaunchpadError::MathOverflow)?;
         self.user_position.last_interaction = Clock::get()?.unix_timestamp;
+        
+        // Emit user position updated event
+        emit!(UserPositionUpdated {
+            user: self.seller.key(),
+            launch: self.token_launch.key(),
+            token_amount: self.user_position.token_amount,
+            sol_invested: self.user_position.sol_invested,
+            sol_received: self.user_position.sol_received,
+            buy_count: self.user_position.buy_count,
+            sell_count: self.user_position.sell_count,
+            timestamp: self.user_position.last_interaction,
+        });
         
         msg!(
             "Sold {} tokens for {} lamports (fee: {})",
