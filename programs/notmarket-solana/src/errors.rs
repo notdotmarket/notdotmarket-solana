@@ -65,6 +65,9 @@ pub enum LaunchpadError {
     #[msg("Already graduated")]
     AlreadyGraduated,
     
+    #[msg("Bonding curve has not graduated yet")]
+    NotGraduated,
+    
     #[msg("Invalid timestamp")]
     InvalidTimestamp,
     

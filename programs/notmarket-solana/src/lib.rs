@@ -8,12 +8,14 @@ pub mod events;
 pub mod bonding_curve;
 pub mod token_creation;
 pub mod trading;
+pub mod liquidity;
 
 use state::*;
 use errors::*;
 use events::*;
 use token_creation::*;
 use trading::*;
+use liquidity::*;
 
 #[program]
 pub mod notmarket_solana {
@@ -205,5 +207,12 @@ pub mod notmarket_solana {
         });
         
         ctx.accounts.get_quote(amount)
+    }
+
+    /// Withdraw liquidity after graduation (for LP creation)
+    pub fn withdraw_liquidity(
+        ctx: Context<WithdrawLiquidity>,
+    ) -> Result<()> {
+        ctx.accounts.execute(&ctx.bumps)
     }
 }
