@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("9afoMEfpJbXduHMWxTMTJJzTzRuJL8cCPVzXuxVF8auK");
+declare_id!("AEMeQD66sZH5jEUnJ6WHGk6VfJdUDCXsNmYrp5T1bxFE");
 
 pub mod state;
 pub mod errors;
@@ -207,6 +207,15 @@ pub mod notmarket_solana {
         });
         
         ctx.accounts.get_quote(amount)
+    }
+
+    /// Get the current spot price at the bonding curve (view function)
+    /// Returns: (spot_price_lamports, tokens_sold, sol_reserve)
+    
+    pub fn get_spot_price(
+        ctx: Context<GetSpotPrice>,
+    ) -> Result<(u64, u64, u64)> {
+        ctx.accounts.get_current_price()
     }
 
     /// Withdraw liquidity after graduation (for LP creation)

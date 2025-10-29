@@ -6,14 +6,17 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-notmarket_solana = "9afoMEfpJbXduHMWxTMTJJzTzRuJL8cCPVzXuxVF8auK"
+notmarket_solana = "AEMeQD66sZH5jEUnJ6WHGk6VfJdUDCXsNmYrp5T1bxFE"
+
+[programs.devnet]
+notmarket_solana = "AEMeQD66sZH5jEUnJ6WHGk6VfJdUDCXsNmYrp5T1bxFE"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
 cluster = "localnet"
-wallet = "~/.config/solana/id.json"
+wallet = "~/.config/solana/phantom.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

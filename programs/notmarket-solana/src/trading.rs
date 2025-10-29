@@ -524,3 +524,25 @@ impl<'info> GetBuyQuote<'info> {
         Ok((cost, spot_price, slippage))
     }
 }
+
+/// Get current spot price on the bonding curve (view function)
+#[derive(Accounts)]
+pub struct GetSpotPrice<'info> {
+    pub token_launch: Account<'info, TokenLaunch>,
+    pub bonding_curve: Account<'info, BondingCurve>,
+}
+
+impl<'info> GetSpotPrice<'info> {
+    pub fn get_current_price(&self) -> Result<(u64, u64, u64)> {
+        let spot_price = BondingCurveCalculator::get_spot_price(
+            self.bonding_curve.tokens_sold,
+            self.bonding_curve.sol_price_usd,
+        )?;
+        
+        Ok((
+            spot_price,
+            self.bonding_curve.tokens_sold,
+            self.bonding_curve.sol_reserve,
+        ))
+    }
+}
