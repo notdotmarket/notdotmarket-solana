@@ -25,6 +25,28 @@ pub struct InitializeLaunchpad<'info> {
     pub system_program: Program<'info, System>,
 }
 
+/// Update fee recipient (admin only)
+#[derive(Accounts)]
+pub struct UpdateFeeRecipient<'info> {
+    #[account(
+        mut,
+        seeds = [b"launchpad_config"],
+        bump = config.bump,
+        constraint = config.authority == authority.key() @ LaunchpadError::Unauthorized
+    )]
+    pub config: Account<'info, LaunchpadConfig>,
+    
+    pub authority: Signer<'info>,
+}
+
+impl<'info> UpdateFeeRecipient<'info> {
+    pub fn update_fee_recipient(&mut self, new_fee_recipient: Pubkey) -> Result<()> {
+        self.config.fee_recipient = new_fee_recipient;
+        msg!("Fee recipient updated to: {}", new_fee_recipient);
+        Ok(())
+    }
+}
+
 /// Create a new token launch
 #[derive(Accounts)]
 #[instruction(name: String, symbol: String)]

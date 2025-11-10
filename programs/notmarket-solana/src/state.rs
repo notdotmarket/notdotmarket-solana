@@ -174,3 +174,25 @@ impl UserPosition {
         8 +  // last_interaction
         1;   // bump
 }
+
+/// Return type for buy quote view function
+#[derive(AnchorSerialize, AnchorDeserialize)]
+pub struct BuyQuote {
+    /// Total cost in lamports to buy the tokens
+    pub cost: u64,
+    /// Current spot price per token in lamports
+    pub spot_price: u64,
+    /// Slippage in basis points (e.g., 100 = 1%)
+    pub slippage: u16,
+}
+
+/// Return type for spot price view function
+#[derive(AnchorSerialize, AnchorDeserialize)]
+pub struct SpotPrice {
+    /// Current spot price per token in lamports
+    pub spot_price: u64,
+    /// Total tokens sold so far
+    pub tokens_sold: u64,
+    /// Current SOL reserve in the bonding curve
+    pub sol_reserve: u64,
+}

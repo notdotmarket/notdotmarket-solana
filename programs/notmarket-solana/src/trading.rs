@@ -172,7 +172,7 @@ pub struct SellTokens<'info> {
 }
 
 impl<'info> BuyTokens<'info> {
-    pub fn execute(&mut self, amount: u64, max_sol_cost: u64, bumps: &BuyTokensBumps) -> Result<()> {
+    pub fn execute(&mut self, amount: u64, max_sol_cost: u64, bumps: &BuyTokensBumps) -> Result<(u64, u64)> {
         require!(amount > 0, LaunchpadError::InvalidAmount);
         require!(
             self.bonding_curve.token_reserve >= amount,
@@ -346,12 +346,12 @@ impl<'info> BuyTokens<'info> {
             // Note: Actual LP creation logic would be implemented in a separate instruction
         }
         
-        Ok(())
+        Ok((cost, fee))
     }
 }
 
 impl<'info> SellTokens<'info> {
-    pub fn execute(&mut self, amount: u64, min_sol_output: u64, bumps: &SellTokensBumps) -> Result<()> {
+    pub fn execute(&mut self, amount: u64, min_sol_output: u64, bumps: &SellTokensBumps) -> Result<(u64, u64)> {
         require!(amount > 0, LaunchpadError::InvalidAmount);
         require!(
             self.user_position.token_amount >= amount,
@@ -491,7 +491,7 @@ impl<'info> SellTokens<'info> {
             fee
         );
         
-        Ok(())
+        Ok((proceeds, fee))
     }
 }
 
@@ -503,7 +503,7 @@ pub struct GetBuyQuote<'info> {
 }
 
 impl<'info> GetBuyQuote<'info> {
-    pub fn get_quote(&self, amount: u64) -> Result<(u64, u64, u16)> {
+    pub fn get_quote(&self, amount: u64) -> Result<BuyQuote> {
         let cost = BondingCurveCalculator::calculate_buy_price(
             self.bonding_curve.tokens_sold,
             amount,
@@ -521,7 +521,11 @@ impl<'info> GetBuyQuote<'info> {
             self.bonding_curve.sol_price_usd,
         )?;
         
-        Ok((cost, spot_price, slippage))
+        Ok(BuyQuote {
+            cost,
+            spot_price,
+            slippage,
+        })
     }
 }
 
@@ -533,16 +537,16 @@ pub struct GetSpotPrice<'info> {
 }
 
 impl<'info> GetSpotPrice<'info> {
-    pub fn get_current_price(&self) -> Result<(u64, u64, u64)> {
+    pub fn get_current_price(&self) -> Result<SpotPrice> {
         let spot_price = BondingCurveCalculator::get_spot_price(
             self.bonding_curve.tokens_sold,
             self.bonding_curve.sol_price_usd,
         )?;
         
-        Ok((
+        Ok(SpotPrice {
             spot_price,
-            self.bonding_curve.tokens_sold,
-            self.bonding_curve.sol_reserve,
-        ))
+            tokens_sold: self.bonding_curve.tokens_sold,
+            sol_reserve: self.bonding_curve.sol_reserve,
+        })
     }
 }

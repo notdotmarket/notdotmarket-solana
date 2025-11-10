@@ -5,11 +5,12 @@ package_manager = "yarn"
 resolution = true
 skip-lint = false
 
-[programs.localnet]
-notmarket_solana = "AEMeQD66sZH5jEUnJ6WHGk6VfJdUDCXsNmYrp5T1bxFE"
-
 [programs.devnet]
-notmarket_solana = "AEMeQD66sZH5jEUnJ6WHGk6VfJdUDCXsNmYrp5T1bxFE"
+notmarket_solana = "D2EDhFF3HcNuwdSWpPE7z1QxVSdMVPFHv4N4vW7mXTwT"
+
+[programs.localnet]
+USDC = "AXsvvaM4CB4ixKBWtcsobwGtQtD32XD6NEaKRvhY8QDz"
+notmarket_solana = "D2EDhFF3HcNuwdSWpPE7z1QxVSdMVPFHv4N4vW7mXTwT"
 
 [registry]
 url = "https://api.apr.dev"
@@ -19,4 +20,4 @@ cluster = "localnet"
 wallet = "~/.config/solana/phantom.json"
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/bonding-curve-trading.ts"

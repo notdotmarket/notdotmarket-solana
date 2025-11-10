@@ -8,6 +8,14 @@ pub struct LaunchpadInitialized {
     pub platform_fee_bps: u16,
 }
 
+/// Emitted when the fee recipient is updated
+#[event]
+pub struct FeeRecipientUpdated {
+    pub authority: Pubkey,
+    pub old_fee_recipient: Pubkey,
+    pub new_fee_recipient: Pubkey,
+}
+
 /// Emitted when a new token launch is created
 #[event]
 pub struct TokenLaunchCreated {

@@ -1045,20 +1045,167 @@ describe("notmarket-solana", () => {
       const quoteAmount = new BN(1_000_000_000); // 1 token
 
       try {
-        const result = await program.methods
+        const quote = await program.methods
           .getBuyQuote(quoteAmount)
           .accounts({
             bondingCurve: bondingCurvePda,
             tokenLaunch: tokenLaunchPda,
           })
-          .simulate();
+          .view();
 
-        console.log("Buy quote result:", result);
-        // Quote function exists and can be called
-        assert.ok(result);
+        console.log("Buy quote result:", {
+          cost: quote.cost.toString(),
+          spotPrice: quote.spotPrice.toString(),
+          slippage: quote.slippage,
+        });
+        
+        // Verify the quote has expected fields
+        assert.ok(quote.cost, "Quote should have cost");
+        assert.ok(quote.spotPrice, "Quote should have spotPrice");
+        assert.ok(typeof quote.slippage === 'number', "Quote should have slippage as number");
+        
+        console.log("✅ View function works correctly!");
       } catch (error) {
-        // View functions may not be supported, skip test
-        console.log("Quote test skipped:", error.message);
+        console.log("Quote test error:", error.message);
+        throw error;
+      }
+    });
+  });
+
+  describe("Get Spot Price", () => {
+    it("Gets current spot price without transaction", async () => {
+      try {
+        const spotPriceInfo = await program.methods
+          .getSpotPrice()
+          .accounts({
+            bondingCurve: bondingCurvePda,
+            tokenLaunch: tokenLaunchPda,
+          })
+          .view();
+
+        console.log("\n📊 Spot Price Info:");
+        console.log("  Spot Price:", spotPriceInfo.spotPrice.toString(), "lamports per token");
+        console.log("  Tokens Sold:", spotPriceInfo.tokensSold.toString(), 
+          `(${spotPriceInfo.tokensSold.toNumber() / 1e9} tokens)`);
+        console.log("  SOL Reserve:", spotPriceInfo.solReserve.toString(), 
+          `(${spotPriceInfo.solReserve.toNumber() / LAMPORTS_PER_SOL} SOL)`);
+        
+        // Verify the spot price info has expected fields
+        assert.ok(spotPriceInfo.spotPrice, "SpotPrice should have spotPrice");
+        assert.ok(spotPriceInfo.tokensSold !== undefined, "SpotPrice should have tokensSold");
+        assert.ok(spotPriceInfo.solReserve !== undefined, "SpotPrice should have solReserve");
+        
+        // Calculate and display USD price
+        const SOL_PRICE_USD = 150;
+        const spotPriceUsd = (spotPriceInfo.spotPrice.toNumber() / LAMPORTS_PER_SOL) * SOL_PRICE_USD;
+        console.log("  USD Price: $" + spotPriceUsd.toFixed(10) + " per token");
+        
+        // Verify spot price is positive if tokens have been sold
+        const bondingCurve = await program.account.bondingCurve.fetch(bondingCurvePda);
+        if (bondingCurve.tokensSold.gt(new BN(0))) {
+          assert.ok(spotPriceInfo.spotPrice.gt(new BN(0)), 
+            "Spot price should be positive when tokens are sold");
+        }
+        
+        console.log("\n✅ Spot price view function works correctly!");
+      } catch (error) {
+        console.log("Spot price test error:", error.message);
+        throw error;
+      }
+    });
+
+    it("Verifies spot price increases as tokens are sold", async () => {
+      // Get initial spot price
+      const spotPriceBefore = await program.methods
+        .getSpotPrice()
+        .accounts({
+          bondingCurve: bondingCurvePda,
+          tokenLaunch: tokenLaunchPda,
+        })
+        .view();
+
+      console.log("\n📈 Testing spot price progression:");
+      console.log("  Before buy - Spot Price:", spotPriceBefore.spotPrice.toString());
+      console.log("  Before buy - Tokens Sold:", spotPriceBefore.tokensSold.toString());
+
+      // Make a massive purchase to ensure visible price impact on 800M supply curve
+      const buyAmount = new BN(150_000).mul(new BN(1_000_000_000)); // 150,000 tokens (0.01875% of 800M supply)
+      const maxSolCost = new BN(LAMPORTS_PER_SOL * 5000); // 5000 SOL max cost
+
+      const tempBuyer = Keypair.generate();
+      await provider.connection.confirmTransaction(
+        await provider.connection.requestAirdrop(tempBuyer.publicKey, 10000 * LAMPORTS_PER_SOL) // 10,000 SOL for large purchase
+      );
+
+      const tempBuyerTokenAccount = getAssociatedTokenAddressSync(
+        mintPda,
+        tempBuyer.publicKey
+      );
+
+      const [tempUserPositionPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("user_position"), tempBuyer.publicKey.toBuffer(), tokenLaunchPda.toBuffer()],
+        program.programId
+      );
+
+      try {
+        await program.methods
+          .buyTokens(buyAmount, maxSolCost)
+          .accounts({
+            config: configPda,
+            tokenLaunch: tokenLaunchPda,
+            bondingCurve: bondingCurvePda,
+            curveTokenAccount,
+            solVault: solVaultPda,
+            userPosition: tempUserPositionPda,
+            mint: mintPda,
+            buyerTokenAccount: tempBuyerTokenAccount,
+            buyer: tempBuyer.publicKey,
+            feeRecipient: feeRecipient,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([tempBuyer])
+          .rpc();
+
+        // Get spot price after purchase
+        const spotPriceAfter = await program.methods
+          .getSpotPrice()
+          .accounts({
+            bondingCurve: bondingCurvePda,
+            tokenLaunch: tokenLaunchPda,
+          })
+          .view();
+
+        console.log("  After buy - Spot Price:", spotPriceAfter.spotPrice.toString());
+        console.log("  After buy - Tokens Sold:", spotPriceAfter.tokensSold.toString());
+
+        // Verify spot price increased
+        assert.ok(
+          spotPriceAfter.spotPrice.gt(spotPriceBefore.spotPrice),
+          "Spot price should increase after tokens are sold"
+        );
+
+        // Verify tokens sold increased
+        assert.ok(
+          spotPriceAfter.tokensSold.gt(spotPriceBefore.tokensSold),
+          "Tokens sold should increase"
+        );
+
+        const priceIncrease = spotPriceAfter.spotPrice.sub(spotPriceBefore.spotPrice);
+        const percentIncrease = priceIncrease.mul(new BN(10000))
+          .div(spotPriceBefore.spotPrice.gt(new BN(0)) ? spotPriceBefore.spotPrice : new BN(1));
+        
+        console.log("  Price Increase:", priceIncrease.toString(), "lamports");
+        console.log("  Percent Increase:", (percentIncrease.toNumber() / 100).toFixed(2) + "%");
+        console.log("\n✅ Verified spot price increases with sales!");
+
+      } catch (error) {
+        if (error.message?.includes("insufficient funds")) {
+          console.log("⚠️  Skipping progression test due to insufficient funds");
+          return;
+        }
+        throw error;
       }
     });
   });
@@ -1377,20 +1524,23 @@ describe("notmarket-solana", () => {
               tokenLaunch: tokenLaunchPda,
               bondingCurve: bondingCurvePda,
             })
-            .simulate();
+            .view();
           
           console.log("\n🔍 ON-CHAIN VERIFICATION:");
-          console.log("   Quote simulation successful - bonding curve is working!");
+          console.log("   Quote retrieved successfully via .view()!");
+          console.log("   Cost for 1 token:", quote.cost.toString(), "lamports");
+          console.log("   Spot price:", quote.spotPrice.toString(), "lamports per token");
+          console.log("   Slippage:", quote.slippage, "bps");
           
-          // Extract spot price from simulation if available
-          if (quote.events && quote.events.length > 0) {
-            const event = quote.events[0];
-            if (event.data) {
-              console.log("   Event data received from quote" , event.data);
-            }
+          // Calculate USD price
+          const spotPriceUsd = (quote.spotPrice.toNumber() / LAMPORTS_PER_SOL) * SOL_PRICE_USD;
+          console.log(`   Spot price: $${spotPriceUsd.toFixed(10)} per token`);
+          
+          if (quote.cost && quote.spotPrice) {
+            console.log("   ✅ View function returned valid data!");
           }
         } catch (err) {
-          console.log("\n⚠️  Could not simulate quote (OK for empty curve)");
+          console.log("\n⚠️  Could not get quote (OK for empty curve)");
         }
       }
       

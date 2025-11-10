@@ -208,26 +208,24 @@ describe("Bonding Curve - Large Scale Trades", () => {
       // Get quote BEFORE the trade
       console.log("\n📊 Getting quote from program...");
       try {
-        const quoteResult = await program.methods
+        const quote = await program.methods
           .getBuyQuote(buyAmount)
           .accounts({
             bondingCurve: bondingCurvePda,
             tokenLaunch: tokenLaunchPda,
           })
-          .simulate();
+          .view();
 
-        console.log("\n✅ Quote received:");
-        if (quoteResult.events && quoteResult.events.length > 0) {
-          const quoteEvent = quoteResult.events[0];
-          if (quoteEvent.data) {
-            const data = quoteEvent.data as any;
-            console.log(`   Token Amount: ${data.tokenAmount?.toString()} (${Number(data.tokenAmount?.toString() || 0) / 1e9} tokens)`);
-            console.log(`   Estimated Cost: ${data.estimatedCost?.toString()} lamports`);
-            console.log(`   Estimated Cost: ${Number(data.estimatedCost?.toString() || 0) / LAMPORTS_PER_SOL} SOL`);
-            console.log(`   Estimated Fee: ${data.estimatedFee?.toString()} lamports`);
-            console.log(`   Current Tokens Sold: ${data.tokensSoldCurrent?.toString()}`);
-          }
-        }
+        console.log("\n✅ Quote received via .view():");
+        console.log(`   Token Amount: ${buyAmount.toString()} (${buyAmount.toNumber() / 1e9} tokens)`);
+        console.log(`   Estimated Cost: ${quote.cost.toString()} lamports`);
+        console.log(`   Estimated Cost: ${quote.cost.toNumber() / LAMPORTS_PER_SOL} SOL`);
+        console.log(`   Spot Price: ${quote.spotPrice.toString()} lamports per token`);
+        console.log(`   Slippage: ${quote.slippage} bps (${(quote.slippage / 100).toFixed(2)}%)`);
+        
+        // Calculate platform fee (1%)
+        const estimatedFee = quote.cost.toNumber() * 0.01;
+        console.log(`   Estimated Fee: ${estimatedFee.toFixed(0)} lamports`);
       } catch (err) {
         console.log("⚠️  Quote simulation not available:", err.message);
       }
@@ -310,28 +308,26 @@ describe("Bonding Curve - Large Scale Trades", () => {
       // Get quote BEFORE the trade
       console.log("\n📊 Getting quote from program...");
       try {
-        const quoteResult = await program.methods
+        const quote = await program.methods
           .getBuyQuote(buyAmount)
           .accounts({
             bondingCurve: bondingCurvePda,
             tokenLaunch: tokenLaunchPda,
           })
-          .simulate();
+          .view();
 
-        console.log("\n✅ Quote received:");
-        if (quoteResult.events && quoteResult.events.length > 0) {
-          const quoteEvent = quoteResult.events[0];
-          if (quoteEvent.data) {
-            const data = quoteEvent.data as any;
-            console.log(`   Token Amount: ${data.tokenAmount?.toString()} (${Number(data.tokenAmount?.toString() || 0) / 1e9} tokens)`);
-            console.log(`   Estimated Cost: ${data.estimatedCost?.toString()} lamports`);
-            console.log(`   Estimated Cost: ${Number(data.estimatedCost?.toString() || 0) / LAMPORTS_PER_SOL} SOL`);
-            console.log(`   Estimated Fee: ${data.estimatedFee?.toString()} lamports`);
-            console.log(`   Current Tokens Sold: ${data.tokensSoldCurrent?.toString()} (${Number(data.tokensSoldCurrent?.toString() || 0) / 1e9} tokens)`);
-          }
-        }
+        console.log("\n✅ Quote received via .view():");
+        console.log(`   Token Amount: ${buyAmount.toString()} (${buyAmount.toNumber() / 1e9} tokens)`);
+        console.log(`   Estimated Cost: ${quote.cost.toString()} lamports`);
+        console.log(`   Estimated Cost: ${quote.cost.toNumber() / LAMPORTS_PER_SOL} SOL`);
+        console.log(`   Spot Price: ${quote.spotPrice.toString()} lamports per token`);
+        console.log(`   Slippage: ${quote.slippage} bps (${(quote.slippage / 100).toFixed(2)}%)`);
+        
+        // Calculate platform fee (1%)
+        const estimatedFee = quote.cost.toNumber() * 0.01;
+        console.log(`   Estimated Fee: ${estimatedFee.toFixed(0)} lamports`);
       } catch (err) {
-        console.log("⚠️  Quote simulation not available:", err.message);
+        console.log("⚠️  Quote not available:", err.message);
       }
 
       // Get bonding curve state before trade
@@ -413,28 +409,26 @@ describe("Bonding Curve - Large Scale Trades", () => {
       // Get quote BEFORE the trade
       console.log("\n📊 Getting quote from program...");
       try {
-        const quoteResult = await program.methods
+        const quote = await program.methods
           .getBuyQuote(buyAmount)
           .accounts({
             bondingCurve: bondingCurvePda,
             tokenLaunch: tokenLaunchPda,
           })
-          .simulate();
+          .view();
 
-        console.log("\n✅ Quote received:");
-        if (quoteResult.events && quoteResult.events.length > 0) {
-          const quoteEvent = quoteResult.events[0];
-          if (quoteEvent.data) {
-            const data = quoteEvent.data as any;
-            console.log(`   Token Amount: ${data.tokenAmount?.toString()} (${Number(data.tokenAmount?.toString() || 0) / 1e9} tokens)`);
-            console.log(`   Estimated Cost: ${data.estimatedCost?.toString()} lamports`);
-            console.log(`   Estimated Cost: ${Number(data.estimatedCost?.toString() || 0) / LAMPORTS_PER_SOL} SOL`);
-            console.log(`   Estimated Fee: ${data.estimatedFee?.toString()} lamports`);
-            console.log(`   Current Tokens Sold: ${data.tokensSoldCurrent?.toString()} (${Number(data.tokensSoldCurrent?.toString() || 0) / 1e9} tokens)`);
-          }
-        }
+        console.log("\n✅ Quote received via .view():");
+        console.log(`   Token Amount: ${buyAmount.toString()} (${buyAmount.toNumber() / 1e9} tokens)`);
+        console.log(`   Estimated Cost: ${quote.cost.toString()} lamports`);
+        console.log(`   Estimated Cost: ${quote.cost.toNumber() / LAMPORTS_PER_SOL} SOL`);
+        console.log(`   Spot Price: ${quote.spotPrice.toString()} lamports per token`);
+        console.log(`   Slippage: ${quote.slippage} bps (${(quote.slippage / 100).toFixed(2)}%)`);
+        
+        // Calculate platform fee (1%)
+        const estimatedFee = quote.cost.toNumber() * 0.01;
+        console.log(`   Estimated Fee: ${estimatedFee.toFixed(0)} lamports`);
       } catch (err) {
-        console.log("⚠️  Quote simulation not available:", err.message);
+        console.log("⚠️  Quote not available:", err.message);
       }
 
       // Get bonding curve state before trade

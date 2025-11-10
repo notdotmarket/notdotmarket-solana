@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("AEMeQD66sZH5jEUnJ6WHGk6VfJdUDCXsNmYrp5T1bxFE");
+declare_id!("D2EDhFF3HcNuwdSWpPE7z1QxVSdMVPFHv4N4vW7mXTwT");
 
 pub mod state;
 pub mod errors;
@@ -11,11 +11,13 @@ pub mod trading;
 pub mod liquidity;
 
 use state::*;
-use errors::*;
 use events::*;
 use token_creation::*;
 use trading::*;
 use liquidity::*;
+
+// Re-export return types for IDL generation
+pub use state::{BuyQuote, SpotPrice};
 
 #[program]
 pub mod notmarket_solana {
@@ -32,6 +34,22 @@ pub mod notmarket_solana {
             authority: ctx.accounts.authority.key(),
             fee_recipient: ctx.accounts.fee_recipient.key(),
             platform_fee_bps,
+        });
+        
+        Ok(())
+    }
+
+    /// Update the fee recipient address (admin only)
+    pub fn update_fee_recipient(
+        ctx: Context<UpdateFeeRecipient>,
+        new_fee_recipient: Pubkey,
+    ) -> Result<()> {
+        ctx.accounts.update_fee_recipient(new_fee_recipient)?;
+        
+        emit!(FeeRecipientUpdated {
+            authority: ctx.accounts.authority.key(),
+            old_fee_recipient: ctx.accounts.config.fee_recipient,
+            new_fee_recipient,
         });
         
         Ok(())
@@ -119,13 +137,9 @@ pub mod notmarket_solana {
         amount: u64,
         max_sol_cost: u64,
     ) -> Result<()> {
-        // Capture state before execution for event
-        let sol_reserve_before = ctx.accounts.bonding_curve.sol_reserve;
+        // Execute buy and get actual cost and fee from bonding curve calculation
+        let (cost, fee) = ctx.accounts.execute(amount, max_sol_cost, &ctx.bumps)?;
         
-        ctx.accounts.execute(amount, max_sol_cost, &ctx.bumps)?;
-        
-        // Calculate cost from SOL reserve difference
-        let cost = ctx.accounts.bonding_curve.sol_reserve.saturating_sub(sol_reserve_before);
         let price_per_token = if amount > 0 {
             cost.checked_mul(1_000_000_000).unwrap_or(0) / amount
         } else {
@@ -139,7 +153,7 @@ pub mod notmarket_solana {
             bonding_curve: ctx.accounts.bonding_curve.key(),
             token_amount: amount,
             sol_amount: cost,
-            platform_fee: cost.checked_mul(ctx.accounts.config.platform_fee_bps as u64).unwrap_or(0) / 10000,
+            platform_fee: fee,
             tokens_sold_after: ctx.accounts.bonding_curve.tokens_sold,
             sol_reserve_after: ctx.accounts.bonding_curve.sol_reserve,
             price_per_token,
@@ -155,13 +169,9 @@ pub mod notmarket_solana {
         amount: u64,
         min_sol_output: u64,
     ) -> Result<()> {
-        // Capture state before execution for event
-        let sol_reserve_before = ctx.accounts.bonding_curve.sol_reserve;
+        // Execute sell and get actual proceeds and fee from bonding curve calculation
+        let (proceeds, fee) = ctx.accounts.execute(amount, min_sol_output, &ctx.bumps)?;
         
-        ctx.accounts.execute(amount, min_sol_output, &ctx.bumps)?;
-        
-        // Calculate proceeds from reserve difference
-        let proceeds = sol_reserve_before - ctx.accounts.bonding_curve.sol_reserve;
         let price_per_token = if amount > 0 {
             proceeds.checked_mul(1_000_000_000).unwrap_or(0) / amount
         } else {
@@ -175,7 +185,7 @@ pub mod notmarket_solana {
             bonding_curve: ctx.accounts.bonding_curve.key(),
             token_amount: amount,
             sol_amount: proceeds,
-            platform_fee: proceeds.checked_mul(ctx.accounts.config.platform_fee_bps as u64).unwrap_or(0) / 10000,
+            platform_fee: fee,
             tokens_sold_after: ctx.accounts.bonding_curve.tokens_sold,
             sol_reserve_after: ctx.accounts.bonding_curve.sol_reserve,
             price_per_token,
@@ -189,32 +199,31 @@ pub mod notmarket_solana {
     pub fn get_buy_quote(
         ctx: Context<GetBuyQuote>,
         amount: u64,
-    ) -> Result<(u64, u64, u16)> {
-        let (cost, _spot_price, _slippage) = ctx.accounts.get_quote(amount)?;
+    ) -> Result<BuyQuote> {
+        let quote = ctx.accounts.get_quote(amount)?;
         
-        // Calculate fee
-        let fee = cost.checked_mul(100).unwrap_or(0) / 10000; // 1% platform fee
+        // Calculate fee for logging
+        let fee = quote.cost.checked_mul(100).unwrap_or(0) / 10000; // 1% platform fee
         
         let clock = Clock::get()?;
         emit!(PriceQuoteRequested {
             launch: ctx.accounts.token_launch.key(),
             bonding_curve: ctx.accounts.bonding_curve.key(),
             token_amount: amount,
-            estimated_cost: cost,
+            estimated_cost: quote.cost,
             estimated_fee: fee,
             tokens_sold_current: ctx.accounts.bonding_curve.tokens_sold,
             timestamp: clock.unix_timestamp,
         });
         
-        ctx.accounts.get_quote(amount)
+        Ok(quote)
     }
 
     /// Get the current spot price at the bonding curve (view function)
-    /// Returns: (spot_price_lamports, tokens_sold, sol_reserve)
-    
+    /// Returns: SpotPrice struct with current pricing information
     pub fn get_spot_price(
         ctx: Context<GetSpotPrice>,
-    ) -> Result<(u64, u64, u64)> {
+    ) -> Result<SpotPrice> {
         ctx.accounts.get_current_price()
     }
 
