@@ -55,6 +55,44 @@ pub mod notmarket_solana {
         Ok(())
     }
 
+    /// Update admin authority (admin only)
+    pub fn update_admin(
+        ctx: Context<UpdateAdmin>,
+        new_authority: Pubkey,
+    ) -> Result<()> {
+        let old_authority = ctx.accounts.config.authority;
+        ctx.accounts.update_authority(new_authority)?;
+        
+        let clock = Clock::get()?;
+        emit!(AdminChanged {
+            old_authority,
+            new_authority,
+            changed_by: ctx.accounts.authority.key(),
+            timestamp: clock.unix_timestamp,
+        });
+        
+        Ok(())
+    }
+
+    /// Update whitelisted wallets for token launches (admin only)
+    pub fn update_whitelisted_wallets(
+        ctx: Context<UpdateWhitelistedWallets>,
+        whitelisted_wallet_1: Pubkey,
+        whitelisted_wallet_2: Pubkey,
+    ) -> Result<()> {
+        ctx.accounts.update_whitelisted_wallets(whitelisted_wallet_1, whitelisted_wallet_2)?;
+        
+        let clock = Clock::get()?;
+        emit!(WhitelistedWalletsUpdated {
+            authority: ctx.accounts.authority.key(),
+            whitelisted_wallet_1,
+            whitelisted_wallet_2,
+            timestamp: clock.unix_timestamp,
+        });
+        
+        Ok(())
+    }
+
     /// Create a new token launch with bonding curve
     /// Fixed parameters: 1B supply, 800M on curve, 200M for LP
     /// Price range: $0.00000420 → $0.00006900
@@ -63,12 +101,14 @@ pub mod notmarket_solana {
         name: String,
         symbol: String,
         metadata_uri: String,
+        description: String,
         sol_price_usd: u64, // Current SOL price in USD (scaled by 1e8, e.g., $150 = 15_000_000_000)
     ) -> Result<()> {
         ctx.accounts.create(
             name.clone(),
             symbol.clone(),
             metadata_uri.clone(),
+            description.clone(),
             sol_price_usd,
             &ctx.bumps,
         )?;
@@ -85,6 +125,7 @@ pub mod notmarket_solana {
             name,
             symbol,
             uri: metadata_uri,
+            description,
             total_supply: ctx.accounts.token_launch.total_supply,
             curve_supply: ctx.accounts.bonding_curve.token_reserve,
             creator_allocation: ctx.accounts.token_launch.total_supply - ctx.accounts.bonding_curve.token_reserve,
@@ -124,6 +165,25 @@ pub mod notmarket_solana {
             launch: ctx.accounts.token_launch.key(),
             mint: ctx.accounts.token_launch.mint,
             new_uri,
+            updated_by: ctx.accounts.creator.key(),
+            timestamp: clock.unix_timestamp,
+        });
+        
+        Ok(())
+    }
+
+    /// Update description for a token launch
+    pub fn update_description(
+        ctx: Context<UpdateTokenLaunch>,
+        new_description: String,
+    ) -> Result<()> {
+        ctx.accounts.update_description(new_description.clone())?;
+        
+        let clock = Clock::get()?;
+        emit!(DescriptionUpdated {
+            launch: ctx.accounts.token_launch.key(),
+            mint: ctx.accounts.token_launch.mint,
+            new_description,
             updated_by: ctx.accounts.creator.key(),
             timestamp: clock.unix_timestamp,
         });

@@ -52,6 +52,12 @@ impl<'info> UpdateFeeRecipient<'info> {
 #[instruction(name: String, symbol: String)]
 pub struct CreateTokenLaunch<'info> {
     #[account(
+        seeds = [b"launchpad_config"],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, LaunchpadConfig>,
+    
+    #[account(
         init,
         payer = creator,
         space = TokenLaunch::LEN,
@@ -170,9 +176,14 @@ impl<'info> InitializeLaunchpad<'info> {
         config.authority = self.authority.key();
         config.fee_recipient = self.fee_recipient.key();
         config.platform_fee_bps = platform_fee_bps;
+        // Whitelisted wallets are optional - initialize as default (inactive)
+        // They can be set later using update_whitelisted_wallets instruction
+        config.whitelisted_wallet_1 = Pubkey::default();
+        config.whitelisted_wallet_2 = Pubkey::default();
         config.bump = bump;
         
         msg!("Launchpad initialized with fee: {} bps", platform_fee_bps);
+        msg!("Whitelisted wallets can be set later using update_whitelisted_wallets");
         Ok(())
     }
 }
@@ -183,10 +194,17 @@ impl<'info> CreateTokenLaunch<'info> {
         name: String,
         symbol: String,
         metadata_uri: String,
+        description: String,
         sol_price_usd: u64, // Current SOL price in USD (scaled by 1e8)
         bumps: &CreateTokenLaunchBumps,
     ) -> Result<()> {
         use crate::state::{TOTAL_SUPPLY, CURVE_SUPPLY};
+        
+        // Check if creator is authorized (admin or whitelisted wallet)
+        require!(
+            self.config.is_authorized_launcher(&self.creator.key()),
+            LaunchpadError::Unauthorized
+        );
         
         // Validate inputs
         require!(
@@ -200,6 +218,10 @@ impl<'info> CreateTokenLaunch<'info> {
         require!(
             metadata_uri.len() <= TokenLaunch::MAX_URI_LEN,
             LaunchpadError::UriTooLong
+        );
+        require!(
+            description.len() <= TokenLaunch::MAX_DESCRIPTION_LEN,
+            LaunchpadError::DescriptionTooLong
         );
         require!(
             sol_price_usd > 0,
@@ -219,6 +241,7 @@ impl<'info> CreateTokenLaunch<'info> {
         token_launch.name = name.clone();
         token_launch.symbol = symbol.clone();
         token_launch.metadata_uri = metadata_uri;
+        token_launch.description = description;
         token_launch.total_supply = TOTAL_SUPPLY;
         token_launch.circulating_supply = 0;
         token_launch.launch_timestamp = clock.unix_timestamp;
@@ -305,6 +328,72 @@ impl<'info> UpdateTokenLaunch<'info> {
         );
         self.token_launch.metadata_uri = new_uri;
         msg!("Updated metadata URI");
+        Ok(())
+    }
+    
+    pub fn update_description(&mut self, new_description: String) -> Result<()> {
+        require!(
+            new_description.len() <= TokenLaunch::MAX_DESCRIPTION_LEN,
+            LaunchpadError::DescriptionTooLong
+        );
+        self.token_launch.description = new_description;
+        msg!("Updated token description");
+        Ok(())
+    }
+}
+
+/// Update admin authority (admin only)
+#[derive(Accounts)]
+pub struct UpdateAdmin<'info> {
+    #[account(
+        mut,
+        seeds = [b"launchpad_config"],
+        bump = config.bump,
+        constraint = config.authority == authority.key() @ LaunchpadError::Unauthorized
+    )]
+    pub config: Account<'info, LaunchpadConfig>,
+    
+    pub authority: Signer<'info>,
+    
+    /// CHECK: New authority can be any account
+    pub new_authority: UncheckedAccount<'info>,
+}
+
+impl<'info> UpdateAdmin<'info> {
+    pub fn update_authority(&mut self, new_authority: Pubkey) -> Result<()> {
+        self.config.authority = new_authority;
+        msg!("Admin authority updated to: {}", new_authority);
+        Ok(())
+    }
+}
+
+/// Update whitelisted wallets (admin only)
+#[derive(Accounts)]
+pub struct UpdateWhitelistedWallets<'info> {
+    #[account(
+        mut,
+        seeds = [b"launchpad_config"],
+        bump = config.bump,
+        constraint = config.authority == authority.key() @ LaunchpadError::Unauthorized
+    )]
+    pub config: Account<'info, LaunchpadConfig>,
+    
+    pub authority: Signer<'info>,
+}
+
+impl<'info> UpdateWhitelistedWallets<'info> {
+    pub fn update_whitelisted_wallets(
+        &mut self,
+        whitelisted_wallet_1: Pubkey,
+        whitelisted_wallet_2: Pubkey,
+    ) -> Result<()> {
+        self.config.whitelisted_wallet_1 = whitelisted_wallet_1;
+        self.config.whitelisted_wallet_2 = whitelisted_wallet_2;
+        msg!(
+            "Whitelisted wallets updated to: {} and {}",
+            whitelisted_wallet_1,
+            whitelisted_wallet_2
+        );
         Ok(())
     }
 }

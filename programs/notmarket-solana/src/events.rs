@@ -26,6 +26,7 @@ pub struct TokenLaunchCreated {
     pub name: String,
     pub symbol: String,
     pub uri: String,
+    pub description: String,
     pub total_supply: u64,
     pub curve_supply: u64,
     pub creator_allocation: u64,
@@ -92,6 +93,16 @@ pub struct MetadataUpdated {
     pub timestamp: i64,
 }
 
+/// Emitted when token description is updated
+#[event]
+pub struct DescriptionUpdated {
+    pub launch: Pubkey,
+    pub mint: Pubkey,
+    pub new_description: String,
+    pub updated_by: Pubkey,
+    pub timestamp: i64,
+}
+
 /// Emitted when user position is created or updated
 #[event]
 pub struct UserPositionUpdated {
@@ -114,5 +125,23 @@ pub struct PriceQuoteRequested {
     pub estimated_cost: u64,
     pub estimated_fee: u64,
     pub tokens_sold_current: u64,
+    pub timestamp: i64,
+}
+
+/// Emitted when admin authority is changed
+#[event]
+pub struct AdminChanged {
+    pub old_authority: Pubkey,
+    pub new_authority: Pubkey,
+    pub changed_by: Pubkey,
+    pub timestamp: i64,
+}
+
+/// Emitted when whitelisted wallets are updated
+#[event]
+pub struct WhitelistedWalletsUpdated {
+    pub authority: Pubkey,
+    pub whitelisted_wallet_1: Pubkey,
+    pub whitelisted_wallet_2: Pubkey,
     pub timestamp: i64,
 }

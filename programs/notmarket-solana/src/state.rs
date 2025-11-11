@@ -23,6 +23,10 @@ pub struct LaunchpadConfig {
     pub fee_recipient: Pubkey,
     /// Platform fee in basis points (e.g., 100 = 1%)
     pub platform_fee_bps: u16,
+    /// First whitelisted wallet that can launch tokens
+    pub whitelisted_wallet_1: Pubkey,
+    /// Second whitelisted wallet that can launch tokens
+    pub whitelisted_wallet_2: Pubkey,
     /// Bump seed for PDA
     pub bump: u8,
 }
@@ -32,7 +36,23 @@ impl LaunchpadConfig {
         32 + // authority
         32 + // fee_recipient
         2 +  // platform_fee_bps
+        32 + // whitelisted_wallet_1
+        32 + // whitelisted_wallet_2
         1;   // bump
+    
+    /// Check if a wallet is authorized to create token launches
+    /// Returns true if wallet is admin or a non-default whitelisted wallet
+    pub fn is_authorized_launcher(&self, wallet: &Pubkey) -> bool {
+        // Always allow admin
+        if wallet == &self.authority {
+            return true;
+        }
+        
+        // Check whitelisted wallets, but ignore default (zero) pubkeys
+        let default_pubkey = Pubkey::default();
+        (wallet == &self.whitelisted_wallet_1 && self.whitelisted_wallet_1 != default_pubkey)
+            || (wallet == &self.whitelisted_wallet_2 && self.whitelisted_wallet_2 != default_pubkey)
+    }
 }
 
 /// Represents a token launch on the platform
@@ -50,6 +70,8 @@ pub struct TokenLaunch {
     pub name: String,
     /// Token symbol
     pub symbol: String,
+    /// Token description
+    pub description: String,
     /// Total supply
     pub total_supply: u64,
     /// Current circulating supply
@@ -66,6 +88,7 @@ impl TokenLaunch {
     pub const MAX_URI_LEN: usize = 200;
     pub const MAX_NAME_LEN: usize = 32;
     pub const MAX_SYMBOL_LEN: usize = 10;
+    pub const MAX_DESCRIPTION_LEN: usize = 500;
     
     pub const LEN: usize = 8 + // discriminator
         32 + // creator
@@ -74,6 +97,7 @@ impl TokenLaunch {
         4 + Self::MAX_URI_LEN + // metadata_uri (String)
         4 + Self::MAX_NAME_LEN + // name (String)
         4 + Self::MAX_SYMBOL_LEN + // symbol (String)
+        4 + Self::MAX_DESCRIPTION_LEN + // description (String)
         8 +  // total_supply
         8 +  // circulating_supply
         8 +  // launch_timestamp

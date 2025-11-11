@@ -20,6 +20,9 @@ pub enum LaunchpadError {
     #[msg("URI is too long")]
     UriTooLong,
     
+    #[msg("Description is too long")]
+    DescriptionTooLong,
+    
     #[msg("Math overflow occurred")]
     MathOverflow,
     
