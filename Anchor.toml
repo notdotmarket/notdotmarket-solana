@@ -6,11 +6,11 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-notmarket_solana = "D2EDhFF3HcNuwdSWpPE7z1QxVSdMVPFHv4N4vW7mXTwT"
+notmarket_solana = "3CLmRQ4Sudgb3CVtu8cSeN2muqxCcZhiq9bP3aWqspjC"
 
 [programs.localnet]
 USDC = "AXsvvaM4CB4ixKBWtcsobwGtQtD32XD6NEaKRvhY8QDz"
-notmarket_solana = "D2EDhFF3HcNuwdSWpPE7z1QxVSdMVPFHv4N4vW7mXTwT"
+notmarket_solana = "3CLmRQ4Sudgb3CVtu8cSeN2muqxCcZhiq9bP3aWqspjC"
 
 [registry]
 url = "https://api.apr.dev"
