@@ -9,12 +9,14 @@ pub mod bonding_curve;
 pub mod token_creation;
 pub mod trading;
 pub mod liquidity;
+pub mod pyth_price;
 
 use state::*;
 use events::*;
 use token_creation::*;
 use trading::*;
 use liquidity::*;
+use pyth_price::*;
 
 // Re-export return types for IDL generation
 pub use state::{BuyQuote, SpotPrice};

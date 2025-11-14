@@ -2,10 +2,12 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer as TokenTransfer};
 use anchor_spl::associated_token::AssociatedToken;
+use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
 use crate::state::*;
 use crate::bonding_curve::BondingCurveCalculator;
 use crate::errors::LaunchpadError;
 use crate::events::*;
+use crate::pyth_price::PythPriceReader;
 
 /// Buy tokens from the bonding curve
 #[derive(Accounts)]
@@ -87,6 +89,9 @@ pub struct BuyTokens<'info> {
     )]
     pub fee_recipient: UncheckedAccount<'info>,
     
+    /// Pyth SOL/USD price feed
+    pub sol_price_feed: Account<'info, PriceUpdateV2>,
+    
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
@@ -167,6 +172,9 @@ pub struct SellTokens<'info> {
     )]
     pub fee_recipient: UncheckedAccount<'info>,
     
+    /// Pyth SOL/USD price feed
+    pub sol_price_feed: Account<'info, PriceUpdateV2>,
+    
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
@@ -179,11 +187,18 @@ impl<'info> BuyTokens<'info> {
             LaunchpadError::InsufficientLiquidity
         );
         
-        // Calculate cost using fixed bonding curve
+        // Validate and read SOL/USD price from Pyth
+        PythPriceReader::validate_price_freshness(&self.sol_price_feed, 60)?;
+        let sol_price_usd = PythPriceReader::get_sol_price_usd(&self.sol_price_feed)?;
+        
+        // Update bonding curve with current price
+        self.bonding_curve.sol_price_usd = sol_price_usd;
+        
+        // Calculate cost using bonding curve with live price
         let cost = BondingCurveCalculator::calculate_buy_price(
             self.bonding_curve.tokens_sold,
             amount,
-            self.bonding_curve.sol_price_usd,
+            sol_price_usd,
         )?;
         
         // Calculate platform fee
@@ -358,11 +373,18 @@ impl<'info> SellTokens<'info> {
             LaunchpadError::InsufficientBalance
         );
         
-        // Calculate proceeds using bonding curve
+        // Validate and read SOL/USD price from Pyth
+        PythPriceReader::validate_price_freshness(&self.sol_price_feed, 60)?;
+        let sol_price_usd = PythPriceReader::get_sol_price_usd(&self.sol_price_feed)?;
+        
+        // Update bonding curve with current price
+        self.bonding_curve.sol_price_usd = sol_price_usd;
+        
+        // Calculate proceeds using bonding curve with live price
         let proceeds = BondingCurveCalculator::calculate_sell_price(
             self.bonding_curve.tokens_sold,
             amount,
-            self.bonding_curve.sol_price_usd,
+            sol_price_usd,
         )?;
         
         // Calculate platform fee
