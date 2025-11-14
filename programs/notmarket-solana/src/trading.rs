@@ -187,14 +187,23 @@ impl<'info> BuyTokens<'info> {
             LaunchpadError::InsufficientLiquidity
         );
         
-        // Validate and read SOL/USD price from Pyth
-        PythPriceReader::validate_price_freshness(&self.sol_price_feed, 60)?;
-        let sol_price_usd = PythPriceReader::get_sol_price_usd(&self.sol_price_feed)?;
+        // Try to read fresh SOL/USD price from Pyth, fallback to last known price if stale
+        let is_fresh = PythPriceReader::is_price_fresh(&self.sol_price_feed, 60)?;
+        let sol_price_usd = if is_fresh {
+            let fresh_price = PythPriceReader::get_sol_price_usd(&self.sol_price_feed)?;
+            msg!("Using fresh Pyth price: {}", fresh_price);
+            // Update bonding curve with fresh price
+            self.bonding_curve.sol_price_usd = fresh_price;
+            fresh_price
+        } else {
+            // Use last known price from bonding curve state
+            let backup_price = self.bonding_curve.sol_price_usd;
+            msg!("⚠️  Pyth price is stale, using last known price: {}", backup_price);
+            require!(backup_price > 0, LaunchpadError::InvalidPrice);
+            backup_price
+        };
         
-        // Update bonding curve with current price
-        self.bonding_curve.sol_price_usd = sol_price_usd;
-        
-        // Calculate cost using bonding curve with live price
+        // Calculate cost using bonding curve with current/backup price
         let cost = BondingCurveCalculator::calculate_buy_price(
             self.bonding_curve.tokens_sold,
             amount,
@@ -373,14 +382,23 @@ impl<'info> SellTokens<'info> {
             LaunchpadError::InsufficientBalance
         );
         
-        // Validate and read SOL/USD price from Pyth
-        PythPriceReader::validate_price_freshness(&self.sol_price_feed, 60)?;
-        let sol_price_usd = PythPriceReader::get_sol_price_usd(&self.sol_price_feed)?;
+        // Try to read fresh SOL/USD price from Pyth, fallback to last known price if stale
+        let is_fresh = PythPriceReader::is_price_fresh(&self.sol_price_feed, 60)?;
+        let sol_price_usd = if is_fresh {
+            let fresh_price = PythPriceReader::get_sol_price_usd(&self.sol_price_feed)?;
+            msg!("Using fresh Pyth price: {}", fresh_price);
+            // Update bonding curve with fresh price
+            self.bonding_curve.sol_price_usd = fresh_price;
+            fresh_price
+        } else {
+            // Use last known price from bonding curve state
+            let backup_price = self.bonding_curve.sol_price_usd;
+            msg!("⚠️  Pyth price is stale, using last known price: {}", backup_price);
+            require!(backup_price > 0, LaunchpadError::InvalidPrice);
+            backup_price
+        };
         
-        // Update bonding curve with current price
-        self.bonding_curve.sol_price_usd = sol_price_usd;
-        
-        // Calculate proceeds using bonding curve with live price
+        // Calculate proceeds using bonding curve with current/backup price
         let proceeds = BondingCurveCalculator::calculate_sell_price(
             self.bonding_curve.tokens_sold,
             amount,

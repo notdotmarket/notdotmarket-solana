@@ -106,7 +106,4 @@ pub enum LaunchpadError {
     
     #[msg("Invalid configuration")]
     InvalidConfiguration,
-    
-    #[msg("Price data is stale")]
-    StalePrice,
 }

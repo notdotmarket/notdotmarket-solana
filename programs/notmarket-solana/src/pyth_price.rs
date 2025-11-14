@@ -89,15 +89,16 @@ impl PythPriceReader {
         Ok(sol_price_usd)
     }
     
-    /// Validate that the price update is recent (within acceptable staleness threshold)
+    /// Check if the price update is recent (within acceptable staleness threshold)
+    /// Returns true if fresh, false if stale (but doesn't error)
     /// 
     /// # Arguments
     /// * `price_update` - Pyth PriceUpdateV2 account
     /// * `max_staleness_seconds` - Maximum age of price data in seconds (default: 60)
-    pub fn validate_price_freshness(
+    pub fn is_price_fresh(
         price_update: &Account<PriceUpdateV2>,
         max_staleness_seconds: i64,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let current_time = Clock::get()?.unix_timestamp;
         let publish_time = price_update.price_message.publish_time;
         
@@ -105,13 +106,10 @@ impl PythPriceReader {
             .checked_sub(publish_time)
             .ok_or(LaunchpadError::InvalidPrice)?;
         
-        require!(
-            age >= 0 && age <= max_staleness_seconds,
-            LaunchpadError::StalePrice
-        );
+        let is_fresh = age >= 0 && age <= max_staleness_seconds;
         
-        msg!("Price age: {} seconds (max: {})", age, max_staleness_seconds);
+        msg!("Price age: {} seconds (max: {}), fresh: {}", age, max_staleness_seconds, is_fresh);
         
-        Ok(())
+        Ok(is_fresh)
     }
 }
